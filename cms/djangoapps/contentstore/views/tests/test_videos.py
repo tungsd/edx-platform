@@ -554,6 +554,23 @@ class VideosHandlerTestCase(VideoUploadTestMixin, CourseTestCase):
 
         self.assert_video_status(url, edx_video_id, 'Failed')
 
+    @ddt.data(True, False)
+    @patch('openedx.core.djangoapps.video_config.models.VideoTranscriptEnabledFlag.feature_enabled')
+    def test_video_index_transcript_feature(self, is_video_transcript_enabled, video_transcript_feature):
+        """
+        Test that when video transcript is enabled/disabled, correct response is rendered.
+        """
+        video_transcript_feature.return_value = is_video_transcript_enabled
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+
+        if is_video_transcript_enabled:
+            # Verify that course video button is present in the response.
+            self.assertIn('<button class="button course-video-settings-button">', response.content)
+        else:
+            # Verify that course video button is not present in the response.
+            self.assertNotIn('<button class="button course-video-settings-button">', response.content)
+
 
 @ddt.ddt
 @patch.dict('django.conf.settings.FEATURES', {'ENABLE_VIDEO_UPLOAD_PIPELINE': True})
@@ -845,7 +862,10 @@ class VideoImageTestCase(VideoUploadTestBase, CourseTestCase):
         edx_video_id = 'test1'
         video_image_upload_url = self.get_url_for_course_key(self.course.id, {'edx_video_id': edx_video_id})
         with make_image_file(
-            dimensions=(image_data.get('width', settings.VIDEO_IMAGE_MIN_WIDTH), image_data.get('height', settings.VIDEO_IMAGE_MIN_HEIGHT)),
+            dimensions=(
+                image_data.get('width', settings.VIDEO_IMAGE_MIN_WIDTH),
+                image_data.get('height', settings.VIDEO_IMAGE_MIN_HEIGHT)
+            ),
             prefix=image_data.get('prefix', 'videoimage'),
             extension=image_data.get('extension', '.png'),
             force_size=image_data.get('size', settings.VIDEO_IMAGE_SETTINGS['VIDEO_IMAGE_MIN_BYTES'])
@@ -858,6 +878,10 @@ class VideoImageTestCase(VideoUploadTestBase, CourseTestCase):
 
 
 @ddt.ddt
+@patch(
+    'openedx.core.djangoapps.video_config.models.VideoTranscriptEnabledFlag.feature_enabled',
+    Mock(return_value=True)
+)
 @patch.dict('django.conf.settings.FEATURES', {'ENABLE_VIDEO_UPLOAD_PIPELINE': True})
 class TranscriptPreferencesTestCase(VideoUploadTestBase, CourseTestCase):
     """
@@ -865,6 +889,36 @@ class TranscriptPreferencesTestCase(VideoUploadTestBase, CourseTestCase):
     """
 
     VIEW_NAME = 'transcript_preferences_handler'
+
+    @ddt.data(True, False)
+    def test_video_transcript_handler_feature(self, is_video_transcript_enabled):
+        """
+        Test that video transcript handler returns correct response based on feature is enabled or disabled.
+        """
+        video_transcript_url = self.get_url_for_course_key(self.course.id)
+        transcript_preferences = {
+            'provider': TranscriptProvider.CIELO24,
+            'cielo24_fidelity': 'PROFESSIONAL',
+            'cielo24_turnaround': 'STANDARD',
+            'preferred_languages': ['en']
+        }
+
+        with patch(
+            'openedx.core.djangoapps.video_config.models.VideoTranscriptEnabledFlag.feature_enabled'
+        ) as video_transcript_feature:
+            video_transcript_feature.return_value = is_video_transcript_enabled
+            response = self.client.post(
+                video_transcript_url,
+                json.dumps(transcript_preferences),
+                content_type='application/json'
+            )
+
+        if is_video_transcript_enabled:
+            self.assertEqual(response.status_code, 200)
+            response = json.loads(response.content)
+            self.assertTrue(response['transcript_preferences'], transcript_preferences)
+        else:
+            self.assertEqual(response.status_code, 404)
 
     @ddt.data(
         # Error cases
@@ -1008,7 +1062,7 @@ class TranscriptPreferencesTestCase(VideoUploadTestBase, CourseTestCase):
         """
         Test that transcript handler works correctly even when no preferences are found.
         """
-        course_id = 'dummy+course+id'
+        course_id = 'course-v1:dummy+course+id'
         # Verify transcript preferences do not exist
         preferences = get_transcript_preferences(course_id)
         self.assertIsNone(preferences)
@@ -1063,6 +1117,60 @@ class TranscriptPreferencesTestCase(VideoUploadTestBase, CourseTestCase):
 
         # Ensure `transcript_preferences` was set up in Key correctly if sent through request.
         if transcript_preferences:
+            mock_key_instance.set_metadata.assert_any_call('transcript_preferences', json.dumps(transcript_preferences))
+        else:
+            with self.assertRaises(AssertionError):
+                mock_key_instance.set_metadata.assert_any_call(
+                    'transcript_preferences', json.dumps(transcript_preferences)
+                )
+
+    @ddt.data(True, False)
+    @override_settings(AWS_ACCESS_KEY_ID='test_key_id', AWS_SECRET_ACCESS_KEY='test_secret')
+    @patch('boto.s3.key.Key')
+    @patch('boto.s3.connection.S3Connection')
+    @patch('contentstore.views.videos.get_transcript_preferences')
+    def test_transcript_preferences_metadata_feature(self, is_video_transcript_enabled,
+                                                     mock_transcript_preferences, mock_conn, mock_key):
+        """
+        Tests that transcript preference metadata is attached only when video transcript feature is
+        enabled otherwise not.
+        """
+        transcript_preferences = None
+        file_name = 'test-video.mp4'
+        request_data = {'files': [{'file_name': file_name, 'content_type': 'video/mp4'}]}
+
+        if is_video_transcript_enabled:
+            transcript_preferences = {
+                'provider': TranscriptProvider.CIELO24,
+                'cielo24_fidelity': 'PROFESSIONAL',
+                'cielo24_turnaround': 'STANDARD',
+                'preferred_languages': ['en']
+            }
+
+            mock_transcript_preferences.return_value = transcript_preferences
+
+        bucket = Mock()
+        mock_conn.return_value = Mock(get_bucket=Mock(return_value=bucket))
+        mock_key_instance = Mock(
+            generate_url=Mock(
+                return_value='http://example.com/url_{file_name}'.format(file_name=file_name)
+            )
+        )
+        # If extra calls are made, return a dummy
+        mock_key.side_effect = [mock_key_instance] + [Mock()]
+
+        videos_handler_url = reverse_course_url('videos_handler', self.course.id)
+
+        with patch(
+            'openedx.core.djangoapps.video_config.models.VideoTranscriptEnabledFlag.feature_enabled'
+        ) as video_transcript_feature:
+            video_transcript_feature.return_value = is_video_transcript_enabled
+            response = self.client.post(videos_handler_url, json.dumps(request_data), content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+
+        # Ensure `transcript_preferences` was set up correctly when video transcript feature is enabled/disabled.
+        if is_video_transcript_enabled:
             mock_key_instance.set_metadata.assert_any_call('transcript_preferences', json.dumps(transcript_preferences))
         else:
             with self.assertRaises(AssertionError):
