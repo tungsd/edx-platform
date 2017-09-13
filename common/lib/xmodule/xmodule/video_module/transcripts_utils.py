@@ -37,6 +37,13 @@ class TranscriptsRequestValidationException(Exception):  # pylint: disable=missi
     pass
 
 
+class NoVideoIdFoundError(Exception):
+    """
+    No video id is present for a video component
+    """
+    pass
+
+
 def generate_subs(speed, source_speed, source_subs):
     """
     Generate transcripts from one speed to another speed.
@@ -466,6 +473,32 @@ def get_or_create_sjson(item, transcripts):
         generate_sjson_for_all_speeds(item, user_filename, result_subs_dict, item.transcript_language)
     sjson_transcript = Transcript.asset(item.location, source_subs_id, item.transcript_language).data
     return sjson_transcript
+
+
+def get_video_ids_info(edx_video_id, youtube_id_1_0, html5_sources):
+    """
+    Returns list internal or external video ids.
+
+    Arguments:
+        edx_video_id (str):
+        youtube_id_1_0 (str):
+        html5_sources (list):
+
+    Returns:
+        tuple: external or internal, video ids list
+    """
+    clean = lambda item: item.strip() if isinstance(item, basestring) else item
+    external = not bool(clean(edx_video_id))
+
+    video_ids = [edx_video_id, youtube_id_1_0] + get_html5_ids(html5_sources)
+
+    # video_ids cleanup
+    video_ids = filter(lambda item: bool(clean(item)), video_ids)
+
+    if not video_ids:
+        raise NoVideoIdFoundError
+
+    return external, video_ids
 
 
 class Transcript(object):
