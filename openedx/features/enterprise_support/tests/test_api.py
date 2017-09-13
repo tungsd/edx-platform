@@ -15,9 +15,12 @@ from django.test import TestCase
 from django.test.utils import override_settings
 
 from openedx.features.enterprise_support.api import (
+    ConsentApiClient,
+    ConsentApiServiceClient,
     consent_needed_for_course,
     data_sharing_consent_required,
     EnterpriseApiClient,
+    EnterpriseApiServiceClient,
     enterprise_customer_for_request,
     get_dashboard_consent_notification,
     get_enterprise_consent_url,
@@ -25,6 +28,9 @@ from openedx.features.enterprise_support.api import (
 
 from openedx.features.enterprise_support.tests.mixins.enterprise import EnterpriseServiceMockMixin
 from student.tests.factories import UserFactory
+
+
+ENTERPRISE_SERVICE_WORKER_USERNAME = 'enterprise_worker'
 
 
 class MockEnrollment(mock.MagicMock):
@@ -46,28 +52,81 @@ class TestEnterpriseApi(EnterpriseServiceMockMixin, TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = UserFactory.create(
-            username='enterprise-test-user',
+            username=ENTERPRISE_SERVICE_WORKER_USERNAME,
             email='ent_worker@example.com',
             password='password123',
         )
         super(TestEnterpriseApi, cls).setUpTestData()
 
     @httpretty.activate
-    @mock.patch('openedx.core.lib.token_utils.JwtBuilder.build_token')
-    def test_enterprise_api_client_with_user(self, mock_build_token):
+    @override_settings(ENTERPRISE_SERVICE_WORKER_USERNAME=ENTERPRISE_SERVICE_WORKER_USERNAME)
+    @mock.patch('openedx.features.enterprise_support.api.JwtBuilder')
+    def test_enterprise_api_client_with_service_user(self, mock_jwt_builder):
+        """
+        Verify that enterprise API service client uses enterprise service user
+        by default to authenticate and access enterprise API.
+        """
+        mock_jwt_builder.return_value.build_token.return_value = 'test-token'
+        enterprise_service_user = User.objects.get(username=settings.ENTERPRISE_SERVICE_WORKER_USERNAME)
+        enterprise_api_service_client = EnterpriseApiServiceClient()
+
+        mock_jwt_builder.assert_called_once_with(enterprise_service_user)
+        # pylint: disable=protected-access
+        self.assertEqual(enterprise_api_service_client.client._store['session'].auth.token, 'test-token')
+
+    @httpretty.activate
+    @mock.patch('openedx.features.enterprise_support.api.JwtBuilder')
+    def test_enterprise_api_client_with_user(self, mock_jwt_builder):
         """
         Verify that enterprise API client uses the provided user to
         authenticate and access enterprise API.
         """
+        mock_jwt_builder.return_value.build_token.return_value = 'test-token'
         dummy_enterprise_user = UserFactory.create(
             username='dummy-enterprise-user',
             email='dummy-enterprise-user@example.com',
             password='password123',
         )
-        mock_build_token.return_value = 'test-token'
         enterprise_api_client = EnterpriseApiClient(dummy_enterprise_user)
+
+        mock_jwt_builder.assert_called_once_with(dummy_enterprise_user)
         # pylint: disable=protected-access
         self.assertEqual(enterprise_api_client.client._store['session'].auth.token, 'test-token')
+
+    @httpretty.activate
+    @override_settings(ENTERPRISE_SERVICE_WORKER_USERNAME=ENTERPRISE_SERVICE_WORKER_USERNAME)
+    @mock.patch('openedx.features.enterprise_support.api.JwtBuilder')
+    def test_enterprise_consent_api_client_with_service_user(self, mock_jwt_builder):
+        """
+        Verify that enterprise API consent service client uses enterprise
+        service user by default to authenticate and access enterprise API.
+        """
+        mock_jwt_builder.return_value.build_token.return_value = 'test-token'
+        enterprise_service_user = User.objects.get(username=settings.ENTERPRISE_SERVICE_WORKER_USERNAME)
+        consent_api_service_client = ConsentApiServiceClient()
+
+        mock_jwt_builder.assert_called_once_with(enterprise_service_user)
+        # pylint: disable=protected-access
+        self.assertEqual(consent_api_service_client.client._store['session'].auth.token, 'test-token')
+
+    @httpretty.activate
+    @mock.patch('openedx.features.enterprise_support.api.JwtBuilder')
+    def test_enterprise_consent_api_client_with_user(self, mock_jwt_builder):
+        """
+        Verify that enterprise API consent service client uses the provided
+        user to authenticate and access enterprise API.
+        """
+        mock_jwt_builder.return_value.build_token.return_value = 'test-token'
+        dummy_enterprise_user = UserFactory.create(
+            username='dummy-enterprise-user',
+            email='dummy-enterprise-user@example.com',
+            password='password123',
+        )
+        consent_api_service_client = ConsentApiClient(dummy_enterprise_user)
+
+        mock_jwt_builder.assert_called_once_with(dummy_enterprise_user)
+        # pylint: disable=protected-access
+        self.assertEqual(consent_api_service_client.client._store['session'].auth.token, 'test-token')
 
     @httpretty.activate
     def test_consent_needed_for_course(self):

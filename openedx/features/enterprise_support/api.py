@@ -92,6 +92,20 @@ class ConsentApiClient(object):
         return response['consent_required']
 
 
+class ConsentApiServiceClient(ConsentApiClient):
+    """
+    Class for producing an Enterprise Consent API client with service user.
+    """
+
+    def __init__(self):
+        """
+        Initialize an authenticated Enterprise Consent service API client by
+        using the Enterprise worker user by default.
+        """
+        user = User.objects.get(username=settings.ENTERPRISE_SERVICE_WORKER_USERNAME)
+        super(ConsentApiServiceClient, self).__init__(user)
+
+
 class EnterpriseApiClient(object):
     """
     Class for producing an Enterprise service API client.
@@ -231,6 +245,20 @@ class EnterpriseApiClient(object):
             return None
 
         return response
+
+
+class EnterpriseApiServiceClient(EnterpriseApiClient):
+    """
+    Class for producing an Enterprise service API client with service user.
+    """
+
+    def __init__(self):
+        """
+        Initialize an authenticated Enterprise service API client by using the
+        Enterprise worker user by default.
+        """
+        user = User.objects.get(username=settings.ENTERPRISE_SERVICE_WORKER_USERNAME)
+        super(EnterpriseApiServiceClient, self).__init__(user)
 
 
 def data_sharing_consent_required(view_func):
