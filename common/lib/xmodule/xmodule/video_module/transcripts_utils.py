@@ -480,9 +480,9 @@ def get_video_ids_info(edx_video_id, youtube_id_1_0, html5_sources):
     Returns list internal or external video ids.
 
     Arguments:
-        edx_video_id (str):
-        youtube_id_1_0 (str):
-        html5_sources (list):
+        edx_video_id (str): edx_video_id
+        youtube_id_1_0 (str): youtube id
+        html5_sources (list): html5 video ids
 
     Returns:
         tuple: external or internal, video ids list
@@ -494,9 +494,6 @@ def get_video_ids_info(edx_video_id, youtube_id_1_0, html5_sources):
 
     # video_ids cleanup
     video_ids = filter(lambda item: bool(clean(item)), video_ids)
-
-    if not video_ids:
-        raise NoVideoIdFoundError
 
     return external, video_ids
 

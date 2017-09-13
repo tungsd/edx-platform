@@ -684,33 +684,3 @@ class TestVideoIdsInfo(unittest.TestCase):
         """
         actual_result = transcripts_utils.get_video_ids_info(edx_video_id, youtube_id_1_0, html5_sources)
         self.assertEqual(actual_result, expected_result)
-
-    @ddt.data(
-        {
-            'edx_video_id': '  ',
-            'youtube_id_1_0': '',
-            'html5_sources': [],
-        },
-        {
-            'edx_video_id': '',
-            'youtube_id_1_0': '',
-            'html5_sources': [],
-        },
-        {
-            'edx_video_id': '',
-            'youtube_id_1_0': '    ',
-            'html5_sources': [],
-        },
-        {
-            'edx_video_id': '',
-            'youtube_id_1_0': '',
-            'html5_sources': ['   '],
-        },
-    )
-    @ddt.unpack
-    def test_get_video_ids_info_exception(self, edx_video_id, youtube_id_1_0, html5_sources):
-        """
-        Verify that `get_video_ids_info` raises exception if no video found.
-        """
-        with self.assertRaises(transcripts_utils.NoVideoIdFoundError):
-            transcripts_utils.get_video_ids_info(edx_video_id, youtube_id_1_0, html5_sources)
